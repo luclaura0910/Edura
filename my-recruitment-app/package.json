@@ -6,14 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "postinstall": "prisma generate",
-    "db:setup": "prisma generate && prisma db push --accept-data-loss && tsx prisma/seed.ts"
+    "lint": "eslint"
   },
   "dependencies": {
-    "@prisma/client": "5.10.2",
     "next": "16.1.1",
-    "prisma": "5.10.2",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
@@ -27,8 +23,5 @@
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   }
 }
