@@ -1,23 +1,53 @@
 import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AdminService {
-    // Mock data for initial testing
-    private users = [
-        { id: '1', name: 'Nguyen Van A', email: 'a@example.com', role: 'JOB_SEEKER', status: 'ACTIVE', joined: '2024-01-01' },
-        { id: '2', name: 'Tech Corp HR', email: 'hr@techcorp.com', role: 'EMPLOYER', status: 'ACTIVE', joined: '2024-01-05' },
-        { id: '3', name: 'Spammer 123', email: 'spam@fake.com', role: 'JOB_SEEKER', status: 'BANNED', joined: '2024-01-10' },
-    ];
+    constructor(private prisma: PrismaService) { }
 
-    findAllUsers() {
-        return this.users;
+    async findAllUsers() {
+        return this.prisma.user.findMany({
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+            include: {
+                roles: true
+            }
+        });
     }
 
-    getDashboardStats() {
+    async getDashboardStats() {
+        const [totalUsers, totalJobs, totalCompanies, totalApplications] = await Promise.all([
+            this.prisma.user.count(),
+            this.prisma.job.count(),
+            this.prisma.company.count(),
+            this.prisma.jobApplication.count()
+        ]);
+
         return {
-            totalUsers: 12543,
-            totalJobs: 482,
-            pendingReports: 5,
+            totalUsers,
+            totalJobs,
+            totalCompanies,
+            totalApplications
+        };
+    }
+
+    async getRecentActivity() {
+        // Compose a mixed activity feed
+        const recentUsers = await this.prisma.user.findMany({
+            take: 5,
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, email: true, fullName: true, role: true, createdAt: true }
+        });
+
+        const recentJobs = await this.prisma.job.findMany({
+            take: 5,
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, title: true, company: { select: { name: true } }, createdAt: true }
+        });
+
+        return {
+            recentUsers,
+            recentJobs
         };
     }
 }

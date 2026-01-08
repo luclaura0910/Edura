@@ -14,4 +14,9 @@ export class AdminController {
     getStats() {
         return this.adminService.getDashboardStats();
     }
+
+    @Get('activity')
+    getRecentActivity() {
+        return this.adminService.getRecentActivity();
+    }
 }
