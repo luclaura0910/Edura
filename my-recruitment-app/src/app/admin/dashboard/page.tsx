@@ -3,9 +3,11 @@ import StatCard from '../components/StatCard';
 import DashboardCharts from '../components/DashboardCharts';
 import RecentActivity from '../components/RecentActivity';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
 async function getStats() {
     try {
-        const res = await fetch('http://localhost:4000/admin/stats', { cache: 'no-store' });
+        const res = await fetch(`${API_URL}/admin/stats`, { cache: 'no-store' });
         if (!res.ok) return null;
         return res.json();
     } catch (error) {
@@ -16,7 +18,7 @@ async function getStats() {
 
 async function getActivity() {
     try {
-        const res = await fetch('http://localhost:4000/admin/activity', { cache: 'no-store' });
+        const res = await fetch(`${API_URL}/admin/activity`, { cache: 'no-store' });
         if (!res.ok) return null;
         return res.json();
     } catch (error) {
