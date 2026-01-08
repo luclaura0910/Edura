@@ -1,0 +1,677 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  JOB_SEEKER
+  EMPLOYER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  BANNED
+  PENDING
+}
+
+enum JobStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+  EXPIRED
+  PENDING_APPROVAL
+  REJECTED
+}
+
+enum ApplicationStatus {
+  APPLIED
+  VIEWED
+  IN_REVIEW
+  SHORTLISTED
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+  WITHDRAWN
+}
+
+enum ResumeStatus {
+  DRAFT
+  PUBLISHED
+  PRIVATE
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+// ==========================================
+// Authentication & Users
+// ==========================================
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  password        String
+  fullName        String?   @map("full_name")
+  phoneNumber     String?   @map("phone_number")
+  avatar          String?
+  role            UserRole  @default(JOB_SEEKER)
+  status          UserStatus @default(ACTIVE)
+  
+  isEmailVerified Boolean   @default(false) @map("is_email_verified")
+  lastLoginAt     DateTime? @map("last_login_at")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  // Relations
+  jobSeekerProfile JobSeekerProfile?
+  employerProfile  EmployerProfile?
+  refreshTokens    RefreshToken[]
+  notifications    Notification[]
+  followingCompanies CompanyFollower[]
+  
+  // Admin System Relations
+  roles            Role[]          @relation("UserRoles")
+  reportsReported  Report[]        @relation("ReportedBy")
+  reportsHandled   Report[]        @relation("HandledBy")
+  auditLogs        AuditLog[]
+  
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ==========================================
+// Profiles
+// ==========================================
+
+model JobSeekerProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique @map("user_id")
+  
+  headline        String?
+  summary         String?
+  dateOfBirth     DateTime? @map("date_of_birth")
+  gender          Gender?
+  address         String?
+  cityId          Int?      @map("city_id")
+  districtId      Int?      @map("district_id")
+  
+  website         String?
+  github          String?
+  linkedin        String?
+  
+  yearsOfExperience Int?    @default(0) @map("years_of_experience")
+  
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  city            City?     @relation(fields: [cityId], references: [id])
+  resumes         Resume[]
+  applications    JobApplication[]
+  
+  // Pivot tables for skills could be here or strictly in Resume. 
+  // For standard "Profile", we might keep it simple or sync with main resume.
+
+  @@map("job_seeker_profiles")
+}
+
+model EmployerProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique @map("user_id")
+  companyId       String?  @map("company_id")
+  
+  position        String?
+  
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@map("employer_profiles")
+}
+
+// ==========================================
+// Company Ecosystem
+// ==========================================
+
+model Company {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  logo        String?
+  coverImage  String?  @map("cover_image")
+  website     String?
+  description String?  @db.Text
+  scale       String?  // e.g. "10-50", "100-500"
+  
+  industryId  Int?     @map("industry_id")
+  phone       String?
+  email       String?
+  address     String?
+  
+  isVerified  Boolean  @default(false) @map("is_verified")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  // Relations
+  industry    Industry? @relation(fields: [industryId], references: [id])
+  employers   EmployerProfile[]
+  jobs        Job[]
+  locations   CompanyLocation[]
+  followers   CompanyFollower[]
+
+  @@map("companies")
+}
+
+model CompanyLocation {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  name        String?  // e.g. "Headquarters", "Da Nang Branch"
+  address     String
+  cityId      Int?     @map("city_id")
+  districtId  Int?     @map("district_id")
+  
+  isHeadquarter Boolean @default(false) @map("is_headquarter")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  city        City?    @relation(fields: [cityId], references: [id])
+
+  @@map("company_locations")
+}
+
+model CompanyFollower {
+  id             String @id @default(uuid())
+  companyId      String @map("company_id")
+  jobSeekerId    String @map("job_seeker_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  company        Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Logic: jobSeekerId is User.id or JobSeekerProfile.id? Usually User.id
+  // But let's link to User for simplicity in following
+  // Actually schema user requests separating JobSeeker and Employer. 
+  // Ideally follows are by User.
+  user           User   @relation(fields: [jobSeekerId], references: [id], onDelete: Cascade) 
+
+  @@unique([companyId, jobSeekerId])
+  @@map("company_followers")
+}
+
+// ==========================================
+// Job Market
+// ==========================================
+
+model Job {
+  id              String    @id @default(uuid())
+  companyId       String    @map("company_id")
+  title           String
+  slug            String    @unique
+  description     String    @db.Text
+  requirements    String?   @db.Text
+  benefits        String?   @db.Text
+  
+  salaryMin       Float?    @map("salary_min")
+  salaryMax       Float?    @map("salary_max")
+  salaryCurrency  String    @default("VND") @map("salary_currency") // VND/USD
+  isSalaryNegotiable Boolean @default(false) @map("is_salary_negotiable")
+  
+  workMode        String?   @map("work_mode") // Remote, Hybrid, On-site
+  jobLevel        String?   @map("job_level") // Intern, Junior, Senior...
+  
+  quantity        Int       @default(1)
+  
+  deadline        DateTime?
+  status          JobStatus @default(DRAFT)
+  
+  viewsCount      Int       @default(0) @map("views_count")
+  
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  // Relations
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  categories      JobCategoryOnJob[]
+  locations       JobLocation[]
+  applications    JobApplication[]
+  
+  @@index([companyId])
+  @@index([status])
+  @@map("jobs")
+}
+
+model JobLocation {
+  id        String   @id @default(uuid())
+  jobId     String   @map("job_id")
+  cityId    Int      @map("city_id")
+  districtId Int?    @map("district_id")
+  address   String?
+
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  city      City     @relation(fields: [cityId], references: [id])
+
+  @@map("job_locations")
+}
+
+model JobCategoryOnJob {
+  jobId       String      @map("job_id")
+  categoryId  Int         @map("category_id")
+
+  job         Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  category    JobCategory @relation(fields: [categoryId], references: [id])
+
+  @@id([jobId, categoryId])
+  @@map("job_categories_on_jobs")
+}
+
+// ==========================================
+// CV Builder (Complex)
+// ==========================================
+
+model Resume {
+  id              String        @id @default(uuid())
+  jobSeekerId     String        @map("job_seeker_id")
+  
+  title           String        // e.g. "Fullstack Dev CV 2024"
+  slug            String?       // For public sharing
+  
+  layoutId        String?       @map("layout_id") // Template ID
+  colorProfile    String?       @map("color_profile")
+  
+  status          ResumeStatus  @default(DRAFT)
+  isMain          Boolean       @default(false) @map("is_main")
+  
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  jobSeeker       JobSeekerProfile @relation(fields: [jobSeekerId], references: [id], onDelete: Cascade)
+  
+  // Sections
+  experiences     ResumeExperience[]
+  educations      ResumeEducation[]
+  skills          ResumeSkill[]
+  projects        ResumeProject[]
+  certificates    ResumeCertificate[]
+  activities      ResumeActivity[]
+  languages       ResumeLanguage[]
+
+  applications    JobApplication[]
+
+  @@map("resumes")
+}
+
+model ResumeExperience {
+  id              String    @id @default(uuid())
+  resumeId        String    @map("resume_id")
+  
+  companyName     String    @map("company_name")
+  position        String
+  startDate       DateTime  @map("start_date")
+  endDate         DateTime? @map("end_date")
+  isCurrent       Boolean   @default(false) @map("is_current")
+  description     String?   @db.Text
+  
+  order           Int       @default(0)
+
+  resume          Resume    @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("resume_experiences")
+}
+
+model ResumeEducation {
+  id              String    @id @default(uuid())
+  resumeId        String    @map("resume_id")
+  
+  schoolName      String    @map("school_name")
+  degree          String?
+  fieldOfStudy    String?   @map("field_of_study")
+  startDate       DateTime  @map("start_date")
+  endDate         DateTime? @map("end_date")
+  isCurrent       Boolean   @default(false) @map("is_current")
+  description     String?   @db.Text
+  
+  order           Int       @default(0)
+
+  resume          Resume    @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("resume_educations")
+}
+
+model ResumeSkill {
+  id              String    @id @default(uuid())
+  resumeId        String    @map("resume_id")
+  
+  skillName       String    @map("skill_name")
+  level           String?   // Beginner, Intermediate, Advanced
+  
+  order           Int       @default(0)
+
+  resume          Resume    @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("resume_skills")
+}
+
+model ResumeProject {
+  id              String    @id @default(uuid())
+  resumeId        String    @map("resume_id")
+  
+  name            String
+  role            String?
+  startDate       DateTime? @map("start_date")
+  endDate         DateTime? @map("end_date")
+  isCurrent       Boolean   @default(false) @map("is_current")
+  link            String?
+  description     String?   @db.Text
+  
+  order           Int       @default(0)
+
+  resume          Resume    @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("resume_projects")
+}
+
+model ResumeCertificate {
+  id              String    @id @default(uuid())
+  resumeId        String    @map("resume_id")
+  
+  name            String
+  organization    String?
+  year            Int?
+  url             String?
+  
+  order           Int       @default(0)
+
+  resume          Resume    @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("resume_certificates")
+}
+
+model ResumeActivity {
+  id              String    @id @default(uuid())
+  resumeId        String    @map("resume_id")
+  
+  name            String
+  role            String?
+  startDate       DateTime? @map("start_date")
+  endDate         DateTime? @map("end_date")
+  isCurrent       Boolean   @default(false) @map("is_current")
+  description     String?   @db.Text
+  
+  order           Int       @default(0)
+
+  resume          Resume    @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("resume_activities")
+}
+
+model ResumeLanguage {
+  id              String    @id @default(uuid())
+  resumeId        String    @map("resume_id")
+  
+  name            String
+  level           String?   // Native, Fluent, Intermediate
+  
+  order           Int       @default(0)
+
+  resume          Resume    @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("resume_languages")
+}
+
+// ==========================================
+// Applications
+// ==========================================
+
+model JobApplication {
+  id              String            @id @default(uuid())
+  jobId           String            @map("job_id")
+  jobSeekerId     String            @map("job_seeker_id") // Link to Profile
+  resumeId        String?           @map("resume_id")     // Link to specific CV used
+  
+  status          ApplicationStatus @default(APPLIED)
+  
+  coverLetter     String?           @map("cover_letter") @db.Text
+  
+  appliedAt       DateTime          @default(now()) @map("applied_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  job             Job               @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  jobSeeker       JobSeekerProfile  @relation(fields: [jobSeekerId], references: [id], onDelete: Restrict)
+  resume          Resume?           @relation(fields: [resumeId], references: [id])
+  history         ApplicationHistory[]
+
+  @@unique([jobId, jobSeekerId])
+  @@map("job_applications")
+}
+
+model ApplicationHistory {
+  id              String            @id @default(uuid())
+  applicationId   String            @map("application_id")
+  
+  status          ApplicationStatus
+  note            String?
+  createdBy       String?           @map("created_by") // User ID of who changed it
+  
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  application     JobApplication    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("application_histories")
+}
+
+// ==========================================
+// System / Master Data
+// ==========================================
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  title       String
+  message     String
+  type        String   // SYSTEM, APPLICATION, JOB_ALERT
+  isRead      Boolean  @default(false) @map("is_read")
+  data        Json?    // Extra payload
+  
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model Industry {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  slug        String    @unique
+  companies   Company[]
+
+  @@map("industries")
+}
+
+model JobCategory {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  slug        String   @unique
+  
+  jobs        JobCategoryOnJob[]
+
+  @@map("job_categories")
+}
+
+model City {
+  id          Int      @id @default(autoincrement())
+  name        String
+  code        String   @unique // Internal code
+  
+  districts   District[]
+  // Relations to locations
+  jobSeekers       JobSeekerProfile[]
+  companyLocations CompanyLocation[]
+  jobLocations     JobLocation[]
+
+  @@map("cities")
+}
+
+model District {
+  id          Int      @id @default(autoincrement())
+  cityId      Int      @map("city_id")
+  name        String
+  
+  city        City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  @@map("districts")
+}
+
+// ==========================================
+// Admin System & RBAC
+// ==========================================
+
+model Role {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  slug        String       @unique
+  description String?
+
+  permissions Permission[]
+  users       User[]       @relation("UserRoles")
+
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@map("roles")
+}
+
+model Permission {
+  id          Int      @id @default(autoincrement())
+  resource    String   // e.g. "job", "user"
+  action      String   // e.g. "view", "create", "delete"
+  slug        String   @unique // e.g. "job:view"
+  description String?
+
+  roles       Role[]
+
+  @@map("permissions")
+}
+
+// Audit Logging
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id") // Nullable for system actions
+  action      String
+  resource    String
+  resourceId  String?  @map("resource_id")
+  ip          String?
+  userAgent   String?  @map("user_agent")
+  details     Json?
+  
+  status      String?  // SUCCESS, FAILURE
+
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user        User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@map("audit_logs")
+}
+
+// Reports & Moderation
+enum ReportStatus {
+  PENDING
+  REVIEWING
+  RESOLVED
+  REJECTED
+}
+
+enum ReportTargetType {
+  JOB
+  COMPANY
+  USER
+  CV
+}
+
+model Report {
+  id          String           @id @default(uuid())
+  reporterId  String           @map("reporter_id")
+  
+  targetType  ReportTargetType @map("target_type")
+  targetId    String           @map("target_id")
+  
+  reason      String
+  description String?          @db.Text
+  evidence    String[]         // links to images
+  
+  status      ReportStatus     @default(PENDING)
+  resolution  String?          @db.Text
+  
+  handlerId   String?          @map("handler_id") // Admin who handled it
+  handledAt   DateTime?        @map("handled_at")
+
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  reporter    User             @relation("ReportedBy", fields: [reporterId], references: [id])
+  handler     User?            @relation("HandledBy", fields: [handlerId], references: [id])
+
+  @@map("reports")
+}
+
+// System Content
+model Banner {
+  id          Int      @id @default(autoincrement())
+  title       String
+  imageUrl    String   @map("image_url")
+  link        String?
+  position    String   // HOME_HERO, SIDEBAR, ETC
+  isActive    Boolean  @default(true) @map("is_active")
+  order       Int      @default(0)
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("banners")
+}
+
+model SystemConfig {
+  key         String   @id
+  value       Json
+  description String?
+
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_configs")
+}
